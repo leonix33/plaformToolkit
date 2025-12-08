@@ -28,24 +28,36 @@ A comprehensive, cross-platform toolkit for platform engineers that automates th
 
 ## 📦 Installation
 
-### Windows
+## 📥 Installation
 
-#### Option 1: MSI Installer (Recommended)
-Download the latest MSI installer from the [Releases](https://github.com/leonix33/plaformToolkit/releases) page and run it.
-
-```powershell
-msiexec /i PlatformEngineerToolkit_v1.0.0.msi
-```
-
-#### Option 2: PowerShell Script
-```powershell
-# Clone and run
+### Quick Install (Recommended)
+```bash
+# Clone the repository
 git clone https://github.com/leonix33/plaformToolkit.git
 cd plaformToolkit
-.\platform_toolkit.ps1
+
+# For macOS - run the native shell installer
+chmod +x macos/*.sh macos/scripts/*.sh
+./macos/platform_toolkit.sh --install
+
+# For Windows - run the PowerShell script
+# .\platform_toolkit.ps1
 ```
 
-### macOS
+### Manual Installation
+#### macOS
+```bash
+git clone https://github.com/leonix33/plaformToolkit.git PlatformToolkit
+cd PlatformToolkit
+./macos/platform_toolkit.sh --install
+```
+
+#### Windows  
+```powershell
+git clone https://github.com/leonix33/plaformToolkit.git
+cd plaformToolkit  
+.\platform_toolkit.ps1
+```
 
 #### Option 1: Quick Install (Recommended)
 ```bash
@@ -55,9 +67,9 @@ curl -sSL https://raw.githubusercontent.com/leonix33/plaformToolkit/macos-versio
 #### Option 2: Manual Install
 ```bash
 # Clone the macOS branch
-git clone -b macos-version https://github.com/leonix33/plaformToolkit.git PlatformToolkit
+git clone https://github.com/leonix33/plaformToolkit.git PlatformToolkit
 cd PlatformToolkit
-./run_toolkit.sh install
+./macos/platform_toolkit.sh --install
 ```
 
 ## 🛠 Tools Managed
@@ -99,10 +111,10 @@ Search for "Platform Engineer Toolkit"
 ### macOS
 ```bash
 # Install all tools
-./run_toolkit.sh install
+./macos/platform_toolkit.sh --install
 
 # Preview installation (dry run)
-./run_toolkit.sh install --dry-run
+./macos/platform_toolkit.sh --install --dry-run
 
 # Verify installation
 ./run_toolkit.sh verify
@@ -136,10 +148,10 @@ See the main branch documentation for WiX installer build instructions.
 ### macOS
 No build required - shell scripts run directly:
 ```bash
-git clone -b macos-version https://github.com/leonix33/plaformToolkit.git
+git clone https://github.com/leonix33/plaformToolkit.git
 cd plaformToolkit
-chmod +x *.sh scripts/*.sh
-./run_toolkit.sh install
+chmod +x macos/*.sh macos/scripts/*.sh
+./macos/platform_toolkit.sh --install
 ```
 
 ## 📁 Repository Structure
