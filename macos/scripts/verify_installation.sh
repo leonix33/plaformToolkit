@@ -63,6 +63,7 @@ check_tool "git" "git --version" "Git"
 check_tool "node" "node --version" "Node.js"
 check_tool "npm" "npm --version" "NPM"
 check_tool "az" "az --version | head -n1" "Azure CLI"
+check_tool "aws" "aws --version" "AWS CLI"
 check_tool "terraform" "terraform --version | head -n1" "Terraform"
 check_tool "kubectl" "kubectl version --client --short" "Kubectl"
 check_tool "helm" "helm version --short" "Helm"
@@ -198,6 +199,15 @@ if command -v az &> /dev/null; then
         echo -e "${GREEN}✓${NC} Azure CLI: Working"
     else
         echo -e "${RED}✗${NC} Azure CLI: Installation issue"
+    fi
+fi
+
+# Test AWS CLI
+if command -v aws &> /dev/null; then
+    if aws --version &> /dev/null; then
+        echo -e "${GREEN}✓${NC} AWS CLI: Working"
+    else
+        echo -e "${RED}✗${NC} AWS CLI: Installation issue"
     fi
 fi
 
