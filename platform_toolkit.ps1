@@ -89,6 +89,7 @@ Write-Log "`n[3] Installing Core Tools"
 Install-Or-Update-ScoopTool "python"
 Install-Or-Update-ScoopTool "git"
 Install-Or-Update-ScoopTool "azure-cli"
+Install-Or-Update-ScoopTool "aws-cli"
 Install-Or-Update-ScoopTool "terraform"
 
 $PythonAfter = (python --version 2>$null)

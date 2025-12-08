@@ -12,6 +12,7 @@ DRY_RUN=false
 FORCE=false
 LOG=false
 VERBOSE=false
+INSTALL_MODE=true  # Default to install mode
 
 while [[ $# -gt 0 ]]; do
   case $1 in
@@ -31,16 +32,22 @@ while [[ $# -gt 0 ]]; do
       VERBOSE=true
       shift
       ;;
+    --install)
+      INSTALL_MODE=true  # Explicitly set install mode
+      shift
+      ;;
     -h|--help)
-      echo "Usage: $0 [--dry-run] [--force] [--log] [--verbose]"
+      echo "Usage: $0 [--dry-run] [--force] [--log] [--verbose] [--install]"
       echo "  --dry-run    Show what would be done without executing"
       echo "  --force      Force reinstall/update all tools"
       echo "  --log        Enable logging to file"
       echo "  --verbose    Enable verbose output"
+      echo "  --install    Run in installation mode (default)"
       exit 0
       ;;
     *)
       echo "Unknown option $1"
+      echo "Use --help for usage information"
       exit 1
       ;;
   esac
@@ -48,49 +55,51 @@ done
 
 # Configuration
 BASE_TOOLS="$HOME/Tools"
-LOG_FOLDER="$BASE_TOOLS/logs"
-VERSION_SUMMARY_FILE="$BASE_TOOLS/version_summary.json"
-TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
-LOG_FILE="$LOG_FOLDER/toolkit_install_$TIMESTAMP.log"
+LOG_FILE="$HOME/platform-toolkit-install.log"
 
-# Ensure directories exist
-ensure_folder() {
-    if [[ ! -d "$1" ]]; then
-        mkdir -p "$1"
-    fi
-}
-
-ensure_folder "$BASE_TOOLS"
-ensure_folder "$LOG_FOLDER"
-
-# Logging function
-write_log() {
-    local msg="$1"
-    echo "$msg"
-    if [[ "$LOG" == "true" ]]; then
-        echo "$(date '+%Y-%m-%d %H:%M:%S') - $msg" >> "$LOG_FILE"
-    fi
-}
-
-# Execute step function
-do_step() {
-    local text="$1"
-    local action="$2"
-    
-    if [[ "$DRY_RUN" == "true" ]]; then
-        write_log "[dry-run] $text"
-    else
-        write_log "$text"
-        eval "$action"
-    fi
-}
-
-# Color output
+# Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
+
+# Function to log messages
+write_log() {
+    local message="$1"
+    if [[ "$LOG" == true ]]; then
+        echo -e "$message" | tee -a "$LOG_FILE"
+    else
+        echo -e "$message"
+    fi
+}
+
+# Function to execute commands conditionally
+do_step() {
+    local description="$1"
+    local command="$2"
+    
+    if [[ "$DRY_RUN" == true ]]; then
+        write_log "[dry-run] $description"
+        return 0
+    else
+        if [[ "$VERBOSE" == true ]]; then
+            write_log "$description"
+        fi
+        eval "$command"
+        if [[ $? -eq 0 ]]; then
+            write_log "${GREEN}$description completed.${NC}"
+            return 0
+        else
+            write_log "${RED}$description failed.${NC}"
+            return 1
+        fi
+    fi
+}
+
+# ============================================================
+# 1. Setup Package Managers
+# ============================================================
 
 write_log "${GREEN}=== PLATFORM TOOLKIT INSTALL STARTED ===${NC}"
 write_log "Dry run: $DRY_RUN"
@@ -98,50 +107,42 @@ write_log "Force update: $FORCE"
 write_log "Logging: $LOG"
 write_log "Verbose: $VERBOSE"
 
-# ============================================================
-# 1. Install Homebrew
-# ============================================================
-
 write_log "\n${BLUE}[1] Homebrew Setup${NC}"
 
-if ! command -v brew &> /dev/null; then
-    do_step "Installing Homebrew..." \
-        '/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"'
-    
-    # Add Homebrew to PATH for this session
-    if [[ -f "/opt/homebrew/bin/brew" ]]; then
-        eval "$(/opt/homebrew/bin/brew shellenv)"
-    elif [[ -f "/usr/local/bin/brew" ]]; then
-        eval "$(/usr/local/bin/brew shellenv)"
+# Install/Update Homebrew
+setup_homebrew() {
+    if ! command -v brew &> /dev/null; then
+        do_step "Installing Homebrew..." \
+            '/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"'
+    else
+        do_step "Updating Homebrew..." "brew update"
     fi
-else
-    do_step "Updating Homebrew..." "brew update"
-fi
+}
+
+setup_homebrew
 
 # ============================================================
-# 2. Install Package Managers
+# 2. Additional Package Managers
 # ============================================================
 
 write_log "\n${BLUE}[2] Additional Package Managers${NC}"
 
-# Install MacPorts if requested (alternative to Homebrew)
-install_macports() {
-    if ! command -v port &> /dev/null; then
-        write_log "${YELLOW}MacPorts installation requires manual download from https://www.macports.org/install.php${NC}"
-    else
-        do_step "Updating MacPorts..." "sudo port selfupdate"
-    fi
-}
-
-# Install Conda/Miniconda for Python environment management
+# Install Conda/Miniconda for Python environment management (FIXED VERSION)
 install_conda() {
     if ! command -v conda &> /dev/null; then
         do_step "Installing Miniconda..." \
             'curl -fsSL https://repo.anaconda.com/miniconda/Miniconda3-latest-MacOSX-$(uname -m).sh -o /tmp/miniconda.sh && bash /tmp/miniconda.sh -b -p $HOME/miniconda3'
         
-        # Initialize conda
-        do_step "Initializing Conda..." \
-            'source $HOME/miniconda3/bin/activate && conda init'
+        # Fixed conda initialization
+        if [[ "$DRY_RUN" != true ]]; then
+            write_log "Initializing Conda..."
+            export PATH="$HOME/miniconda3/bin:$PATH"
+            source "$HOME/miniconda3/etc/profile.d/conda.sh" 2>/dev/null || true
+            conda init bash zsh 2>/dev/null || true
+            write_log "${GREEN}Conda initialization completed.${NC}"
+        else
+            write_log "[dry-run] Initializing Conda..."
+        fi
     else
         do_step "Updating Conda..." "conda update conda -y"
     fi
@@ -155,32 +156,10 @@ install_nvm() {
     fi
 }
 
-# Install Ruby Version Manager (RVM) 
-install_rvm() {
-    if ! command -v rvm &> /dev/null; then
-        do_step "Installing RVM..." \
-            'curl -sSL https://get.rvm.io | bash -s stable'
-    fi
-}
-
-# Install pyenv for Python version management
+# Install Python Version Manager (pyenv)
 install_pyenv() {
     if ! command -v pyenv &> /dev/null; then
         do_step "Installing pyenv..." "brew install pyenv"
-        
-        # Add to shell profile
-        SHELL_PROFILE=""
-        if [[ "$SHELL" == *"zsh"* ]]; then
-            SHELL_PROFILE="$HOME/.zshrc"
-        elif [[ "$SHELL" == *"bash"* ]]; then
-            SHELL_PROFILE="$HOME/.bash_profile"
-        fi
-        
-        if [[ -n "$SHELL_PROFILE" ]]; then
-            echo 'export PYENV_ROOT="$HOME/.pyenv"' >> "$SHELL_PROFILE"
-            echo 'command -v pyenv >/dev/null || export PATH="$PYENV_ROOT/bin:$PATH"' >> "$SHELL_PROFILE"
-            echo 'eval "$(pyenv init -)"' >> "$SHELL_PROFILE"
-        fi
     else
         do_step "Updating pyenv..." "brew upgrade pyenv"
     fi
@@ -198,98 +177,97 @@ install_pyenv
 write_log "\n${BLUE}[3] Installing Core Development Tools${NC}"
 
 # Function to install or update Homebrew package
-install_or_update_brew_tool() {
-    local tool="$1"
-    local cask="$2"
+install_or_update_brew() {
+    local package="$1"
     
-    if [[ "$cask" == "true" ]]; then
-        if brew list --cask "$tool" &> /dev/null; then
-            if [[ "$FORCE" == "true" ]]; then
-                do_step "Force reinstalling $tool..." "brew reinstall --cask $tool"
-            else
-                do_step "Updating $tool..." "brew upgrade --cask $tool"
-            fi
+    if brew list "$package" &> /dev/null; then
+        if [[ "$FORCE" == true ]]; then
+            do_step "Updating $package..." "brew upgrade $package"
         else
-            do_step "Installing $tool..." "brew install --cask $tool"
+            write_log "${GREEN}$package installed/updated.${NC}"
         fi
     else
-        if brew list "$tool" &> /dev/null; then
-            if [[ "$FORCE" == "true" ]]; then
-                do_step "Force reinstalling $tool..." "brew reinstall $tool"
-            else
-                do_step "Updating $tool..." "brew upgrade $tool"
-            fi
-        else
-            do_step "Installing $tool..." "brew install $tool"
-        fi
+        do_step "Installing $package..." "brew install $package"
     fi
-    write_log "${GREEN}$tool installed/updated.${NC}"
 }
 
-# Core tools installation
-install_or_update_brew_tool "python@3.12"
-install_or_update_brew_tool "git"
-install_or_update_brew_tool "azure-cli"
-install_or_update_brew_tool "terraform"
-install_or_update_brew_tool "node"
-install_or_update_brew_tool "docker"
-install_or_update_brew_tool "kubectl"
-install_or_update_brew_tool "helm"
-install_or_update_brew_tool "jq"
-install_or_update_brew_tool "yq"
-install_or_update_brew_tool "curl"
-install_or_update_brew_tool "wget"
+# Core development tools
+install_or_update_brew "python@3.12"
+install_or_update_brew "git"
+install_or_update_brew "azure-cli"
+install_or_update_brew "awscli"  # NEW: Added AWS CLI
+install_or_update_brew "terraform"
+install_or_update_brew "node"
+install_or_update_brew "docker"
+install_or_update_brew "kubectl"
+install_or_update_brew "helm"
+install_or_update_brew "jq"
+install_or_update_brew "yq"
+install_or_update_brew "curl"
+install_or_update_brew "wget"
 
 # ============================================================
-# 4. Install Development Applications (Casks)
+# 4. Install Development Applications
 # ============================================================
 
 write_log "\n${BLUE}[4] Installing Development Applications${NC}"
 
-install_or_update_brew_tool "visual-studio-code" "true"
-install_or_update_brew_tool "docker" "true"
-install_or_update_brew_tool "postman" "true"
-install_or_update_brew_tool "iterm2" "true"
+# Function to install or update Homebrew cask
+install_or_update_cask() {
+    local package="$1"
+    
+    if brew list --cask "$package" &> /dev/null; then
+        if [[ "$FORCE" == true ]]; then
+            do_step "Updating $package..." "brew upgrade --cask $package"
+        else
+            write_log "${GREEN}$package installed/updated.${NC}"
+        fi
+    else
+        do_step "Installing $package..." "brew install --cask $package"
+    fi
+}
+
+# Development applications
+install_or_update_cask "visual-studio-code"
+install_or_update_cask "docker"
+install_or_update_cask "postman"
+install_or_update_cask "iterm2"
 
 # ============================================================
-# 5. Install Databricks CLI
+# 5. Databricks CLI Setup
 # ============================================================
 
 write_log "\n${BLUE}[5] Databricks CLI Setup${NC}"
 
+# Install modern Databricks CLI
 install_databricks_cli() {
-    # Install via pip if available
-    if command -v pip3 &> /dev/null; then
-        do_step "Installing/Updating Databricks CLI via pip..." \
-            "pip3 install --upgrade databricks-cli"
-    else
-        # Install via curl
-        local dbx_folder="$BASE_TOOLS/DatabricksCLI"
-        ensure_folder "$dbx_folder"
-        
+    if ! command -v databricks &> /dev/null; then
         do_step "Installing Databricks CLI..." \
             'curl -fsSL https://raw.githubusercontent.com/databricks/setup-cli/main/install.sh | sh'
+    else
+        write_log "${GREEN}Databricks CLI already installed.${NC}"
     fi
 }
 
 install_databricks_cli
 
 # ============================================================
-# 6. Install Additional Useful Tools
+# 6. Install Additional Development Tools
 # ============================================================
 
 write_log "\n${BLUE}[6] Installing Additional Development Tools${NC}"
 
-install_or_update_brew_tool "htop"
-install_or_update_brew_tool "tree"
-install_or_update_brew_tool "tmux"
-install_or_update_brew_tool "zsh-autosuggestions"
-install_or_update_brew_tool "zsh-syntax-highlighting"
-install_or_update_brew_tool "fzf"
-install_or_update_brew_tool "ripgrep"
-install_or_update_brew_tool "bat"
-install_or_update_brew_tool "exa"
-install_or_update_brew_tool "fd"
+# Additional useful tools
+install_or_update_brew "htop"
+install_or_update_brew "tree"
+install_or_update_brew "tmux"
+install_or_update_brew "zsh-autosuggestions"
+install_or_update_brew "zsh-syntax-highlighting"
+install_or_update_brew "fzf"
+install_or_update_brew "ripgrep"
+install_or_update_brew "bat"
+install_or_update_brew "exa"
+install_or_update_brew "fd"
 
 # ============================================================
 # 7. Configure Shell Environment
@@ -297,64 +275,49 @@ install_or_update_brew_tool "fd"
 
 write_log "\n${BLUE}[7] Configuring Shell Environment${NC}"
 
-configure_shell() {
-    local shell_config=""
-    
-    if [[ "$SHELL" == *"zsh"* ]]; then
-        shell_config="$HOME/.zshrc"
-        
-        # Install Oh My Zsh if not present
-        if [[ ! -d "$HOME/.oh-my-zsh" ]]; then
-            do_step "Installing Oh My Zsh..." \
-                'sh -c "$(curl -fsSL https://raw.github.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended'
-        fi
-        
-    elif [[ "$SHELL" == *"bash"* ]]; then
-        shell_config="$HOME/.bash_profile"
-    fi
-    
-    if [[ -n "$shell_config" ]]; then
-        # Add Homebrew to PATH
-        if ! grep -q "brew shellenv" "$shell_config" 2>/dev/null; then
-            echo '' >> "$shell_config"
-            echo '# Homebrew' >> "$shell_config"
-            if [[ -f "/opt/homebrew/bin/brew" ]]; then
-                echo 'eval "$(/opt/homebrew/bin/brew shellenv)"' >> "$shell_config"
-            elif [[ -f "/usr/local/bin/brew" ]]; then
-                echo 'eval "$(/usr/local/bin/brew shellenv)"' >> "$shell_config"
-            fi
-        fi
-        
-        # Add useful aliases
-        if ! grep -q "# Platform Toolkit Aliases" "$shell_config" 2>/dev/null; then
-            cat >> "$shell_config" << 'EOF'
-
-# Platform Toolkit Aliases
-alias ll='exa -la --git'
-alias ls='exa'
-alias cat='bat'
-alias find='fd'
-alias grep='rg'
-alias top='htop'
-alias python='python3'
-alias pip='pip3'
-
-# Git aliases
-alias gs='git status'
-alias ga='git add'
-alias gc='git commit'
-alias gp='git push'
-alias gl='git log --oneline'
-alias gd='git diff'
-
-EOF
-        fi
-        
-        write_log "Shell configuration updated: $shell_config"
+# Install Oh My Zsh if not present
+install_oh_my_zsh() {
+    if [[ ! -d "$HOME/.oh-my-zsh" ]]; then
+        do_step "Installing Oh My Zsh..." \
+            'sh -c "$(curl -fsSL https://raw.github.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended'
     fi
 }
 
-configure_shell
+install_oh_my_zsh
+
+# Update shell configuration
+update_shell_config() {
+    local zshrc="$HOME/.zshrc"
+    
+    if [[ "$DRY_RUN" != true ]]; then
+        # Add NVM configuration
+        if [[ ! $(grep -q "NVM_DIR" "$zshrc") ]]; then
+            cat >> "$zshrc" << 'EOF'
+
+# NVM Configuration
+export NVM_DIR="$HOME/.nvm"
+[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+[ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"
+
+# pyenv Configuration
+export PATH="$HOME/.pyenv/bin:$PATH"
+eval "$(pyenv init -)"
+
+# Conda Configuration
+export PATH="$HOME/miniconda3/bin:$PATH"
+
+# Homebrew Configuration
+eval "$(/usr/local/bin/brew shellenv)"
+
+EOF
+        fi
+        write_log "Shell configuration updated: $zshrc"
+    else
+        write_log "[dry-run] Shell configuration would be updated"
+    fi
+}
+
+update_shell_config
 
 # ============================================================
 # 8. Generate Version Summary
@@ -363,63 +326,42 @@ configure_shell
 write_log "\n${BLUE}[8] Generating Version Summary${NC}"
 
 generate_summary() {
-    local python_version=""
-    local git_version=""
-    local node_version=""
-    local terraform_version=""
-    local azure_cli_version=""
-    local databricks_cli_version=""
-    local docker_version=""
-    local kubectl_version=""
+    local VERSION_SUMMARY_FILE="$HOME/platform-toolkit-versions.json"
     
-    if command -v python3 &> /dev/null; then
-        python_version=$(python3 --version 2>/dev/null)
+    if [[ "$DRY_RUN" == true ]]; then
+        write_log "[dry-run] Version summary would be generated at: $VERSION_SUMMARY_FILE"
+        return
     fi
     
-    if command -v git &> /dev/null; then
-        git_version=$(git --version 2>/dev/null)
-    fi
-    
-    if command -v node &> /dev/null; then
-        node_version=$(node --version 2>/dev/null)
-    fi
-    
-    if command -v terraform &> /dev/null; then
-        terraform_version=$(terraform --version | head -n1 2>/dev/null)
-    fi
-    
-    if command -v az &> /dev/null; then
-        azure_cli_version=$(az --version | head -n1 2>/dev/null)
-    fi
-    
-    if command -v databricks &> /dev/null; then
-        databricks_cli_version=$(databricks --version 2>/dev/null)
-    fi
-    
-    if command -v docker &> /dev/null; then
-        docker_version=$(docker --version 2>/dev/null)
-    fi
-    
-    if command -v kubectl &> /dev/null; then
-        kubectl_version=$(kubectl version --client --short 2>/dev/null)
-    fi
-    
-    # Create JSON summary
+    # Get versions of installed tools
+    local python_version=$(python3 --version 2>/dev/null || echo "Not installed")
+    local git_version=$(git --version 2>/dev/null || echo "Not installed") 
+    local node_version=$(node --version 2>/dev/null || echo "Not installed")
+    local npm_version=$(npm --version 2>/dev/null || echo "Not installed")
+    local az_version=$(az version --output table 2>/dev/null | head -2 | tail -1 | awk '{print $1}' || echo "Not installed")
+    local aws_version=$(aws --version 2>/dev/null || echo "Not installed")
+    local terraform_version=$(terraform --version 2>/dev/null | head -1 || echo "Not installed")
+    local kubectl_version=$(kubectl version --client --output=yaml 2>/dev/null | grep gitVersion | awk '{print $2}' || echo "Not installed")
+    local helm_version=$(helm version --short 2>/dev/null || echo "Not installed")
+    local docker_version=$(docker --version 2>/dev/null || echo "Not installed")
+    local databricks_version=$(databricks --version 2>/dev/null || echo "Not installed")
+
     cat > "$VERSION_SUMMARY_FILE" << EOF
 {
-  "generated_at": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
+  "timestamp": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
   "platform": "macOS",
-  "architecture": "$(uname -m)",
-  "shell": "$SHELL",
   "tools": {
     "python": "$python_version",
-    "git": "$git_version",
+    "git": "$git_version", 
     "node": "$node_version",
+    "npm": "$npm_version",
+    "azure-cli": "$az_version",
+    "aws-cli": "$aws_version",
     "terraform": "$terraform_version",
-    "azure_cli": "$azure_cli_version",
-    "databricks_cli": "$databricks_cli_version",
-    "docker": "$docker_version",
     "kubectl": "$kubectl_version",
+    "helm": "$helm_version",
+    "docker": "$docker_version",
+    "databricks": "$databricks_version",
     "homebrew": "$(brew --version | head -n1 2>/dev/null)"
   },
   "package_managers": {
@@ -437,28 +379,14 @@ EOF
 generate_summary
 
 # ============================================================
-# 9. Final Steps and Cleanup
+# Final Status
 # ============================================================
 
-write_log "\n${BLUE}[9] Final Configuration${NC}"
+write_log "\n${GREEN}=== PLATFORM TOOLKIT INSTALLATION COMPLETED ===${NC}"
+write_log "${YELLOW}Note: You may need to restart your terminal or run 'source ~/.zshrc' to activate all tools.${NC}"
 
-# Clean up Homebrew
-do_step "Cleaning up Homebrew..." "brew cleanup"
-
-# Update shell completions
-if command -v brew &> /dev/null; then
-    do_step "Installing shell completions..." "brew install bash-completion"
+if [[ "$LOG" == true ]]; then
+    write_log "${BLUE}Installation log saved to: $LOG_FILE${NC}"
 fi
 
-write_log "\n${GREEN}=== PLATFORM TOOLKIT INSTALLATION COMPLETE ===${NC}"
-write_log ""
-write_log "${YELLOW}Next Steps:${NC}"
-write_log "1. Restart your terminal or run: source ~/.zshrc (or ~/.bash_profile)"
-write_log "2. Verify installation: $BASE_TOOLS/scripts/verify_installation.sh"
-write_log "3. Check version summary: cat $VERSION_SUMMARY_FILE"
-write_log ""
-write_log "${BLUE}Installed tools are now available in your PATH!${NC}"
-
-if [[ "$LOG" == "true" ]]; then
-    write_log "Installation log saved: $LOG_FILE"
-fi
+exit 0
